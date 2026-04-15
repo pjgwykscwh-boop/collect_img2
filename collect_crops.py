@@ -37,25 +37,19 @@ os.makedirs(ARTIFACT_DIR, exist_ok=True)
 ocr_cls = ddddocr.DdddOcr(det=False, use_gpu=False, show_ad=False)
 det     = ddddocr.DdddOcr(det=True,  use_gpu=False, show_ad=False)
 
-import tempfile
-
 import time
 from datetime import datetime, timedelta, timezone
 
-# 等待直到早上 6:25（北京时间）
+def get_beijing_time():
+    return datetime.utcnow().replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=8)))
+
 def wait_until_625():
     while True:
         now = get_beijing_time()
         if now.hour > 6 or (now.hour == 6 and now.minute >= 25):
-            # print(f"当前北京时间 {now.strftime('%H:%M:%S')}，已过 6:29，开始执行任务。")
             break
         else:
-            # print(f"当前北京时间 {now.strftime('%H:%M:%S')}，未到 6:29，继续等待...")
-            time.sleep(1)  # 每 1 秒检查一次
-# 获取北京时间（东八区时间）
-def get_beijing_time():
-    return datetime.utcnow().replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=8)))
-
+            time.sleep(1)
 
 def wait_until_630():
     while True:
@@ -67,7 +61,9 @@ def wait_until_630():
         if remaining > 1:
             time.sleep(0.5)
         else:
-            time.sleep(0.05)  # 最后1秒内高频检查
+            time.sleep(0.05)
+
+
 def make_driver():
     options = ChromeOptions()
     options.add_argument('--disable-blink-features=AutomationControlled')
@@ -84,7 +80,8 @@ def pack(batch_files, batch_num, total_collected):
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for fpath in batch_files:
             if os.path.exists(fpath):
-                zf.write(fpath, os.path.basename(fpath))
+                arcname = f"bg/{os.path.basename(fpath)}" if "/bg/" in fpath else os.path.basename(fpath)
+                zf.write(fpath, arcname)
     size_mb = os.path.getsize(zip_path) / 1024 / 1024
     print(f"已打包第{batch_num}批 {len(batch_files)}张 → {zip_path}（{size_mb:.1f}MB）")
 
@@ -220,7 +217,10 @@ def collect_one_round(driver, collected, batch_buffer):
 
     ts       = time.strftime("%Y%m%d_%H%M%S")
     hint_str = "".join(hint_chars) if hint_chars else "unknown"
-    bg_image.save(f"{BG_DIR}/{ts}_hint{hint_str}.png")
+
+    bg_save_path = f"{BG_DIR}/{ts}_hint{hint_str}.png"
+    bg_image.save(bg_save_path)
+    batch_buffer.append(bg_save_path)
 
     auto_count = 0
     for n, bbox in enumerate(bboxes):
@@ -233,7 +233,6 @@ def collect_one_round(driver, collected, batch_buffer):
         ))
         label = "TODO"
 
-        hint_str = "".join(hint_chars) if hint_chars else "unknown"
         save_path = f"{SAVE_DIR}/{ts}_{n}_label{label}_hint{hint_str}.png"
         crop.save(save_path)
         batch_buffer.append(save_path)
@@ -256,7 +255,7 @@ def main():
     collected    = 0
     batch_num    = 0
     batch_buffer = []
-    
+
     try:
         login(driver)
         open_captcha(driver)
